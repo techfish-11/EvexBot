@@ -78,13 +78,15 @@ class WelcomeDatabase:
 
     @staticmethod
     async def init_database() -> None:
-        async with get_db_conn() as conn:
+        conn = await get_db_conn()
+        async with conn:
             await conn.execute(CREATE_TABLE_SQL)
             await conn.commit()
 
     @staticmethod
     async def get_settings(guild_id: int) -> Tuple[bool, int, Optional[int]]:
-        async with get_db_conn() as conn:
+        conn = await get_db_conn()
+        async with conn:
             async with conn.execute(
                 "SELECT is_enabled, member_increment, channel_id FROM welcome_settings WHERE guild_id = ?",
                 (guild_id,)
@@ -100,7 +102,8 @@ class WelcomeDatabase:
     async def update_settings(guild_id: int, is_enabled: bool,
                               member_increment: Optional[int] = None,
                               channel_id: Optional[int] = None) -> None:
-        async with get_db_conn() as conn:
+        conn = await get_db_conn()
+        async with conn:
             # UPSERT for SQLite
             await conn.execute(
                 """
@@ -123,13 +126,15 @@ class LeaveDatabase:
 
     @staticmethod
     async def init_database() -> None:
-        async with get_db_conn() as conn:
+        conn = await get_db_conn()
+        async with conn:
             await conn.execute(CREATE_LEAVE_TABLE_SQL)
             await conn.commit()
 
     @staticmethod
     async def get_settings(guild_id: int) -> Tuple[bool, Optional[int]]:
-        async with get_db_conn() as conn:
+        conn = await get_db_conn()
+        async with conn:
             async with conn.execute(
                 "SELECT is_enabled, channel_id FROM leave_settings WHERE guild_id = ?",
                 (guild_id,)
@@ -143,7 +148,8 @@ class LeaveDatabase:
     @staticmethod
     async def update_settings(guild_id: int, is_enabled: bool,
                               channel_id: Optional[int] = None) -> None:
-        async with get_db_conn() as conn:
+        conn = await get_db_conn()
+        async with conn:
             await conn.execute(
                 """
                 INSERT INTO leave_settings (guild_id, is_enabled, channel_id)
