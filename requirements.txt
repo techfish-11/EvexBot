@@ -1,0 +1,10 @@
+discord.py
+aiosqlite
+aiohttp
+python-dotenv
+PyYAML
+numpy
+matplotlib
+scikit-learn
+pandas
+prophet
