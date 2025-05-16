@@ -13,6 +13,7 @@ with open("config.yml", "r", encoding="utf-8") as f:
     config = yaml.safe_load(f)
 
 intents = discord.Intents.default()
+intents.members = True
 bot = commands.Bot(command_prefix=config["prefix"], intents=intents)
 
 @bot.event
