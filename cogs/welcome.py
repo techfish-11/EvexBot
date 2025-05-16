@@ -79,19 +79,19 @@ class WelcomeDatabase:
     @staticmethod
     async def init_database() -> None:
         conn = await get_db_conn()
-        async with conn:
-            await conn.execute(CREATE_TABLE_SQL)
-            await conn.commit()
+        await conn.execute(CREATE_TABLE_SQL)
+        await conn.commit()
+        await conn.close()
 
     @staticmethod
     async def get_settings(guild_id: int) -> Tuple[bool, int, Optional[int]]:
         conn = await get_db_conn()
-        async with conn:
-            async with conn.execute(
-                "SELECT is_enabled, member_increment, channel_id FROM welcome_settings WHERE guild_id = ?",
-                (guild_id,)
-            ) as cursor:
-                result = await cursor.fetchone()
+        async with conn.execute(
+            "SELECT is_enabled, member_increment, channel_id FROM welcome_settings WHERE guild_id = ?",
+            (guild_id,)
+        ) as cursor:
+            result = await cursor.fetchone()
+        await conn.close()
         return (
             bool(result[0]),
             result[1],
@@ -103,23 +103,22 @@ class WelcomeDatabase:
                               member_increment: Optional[int] = None,
                               channel_id: Optional[int] = None) -> None:
         conn = await get_db_conn()
-        async with conn:
-            # UPSERT for SQLite
-            await conn.execute(
-                """
-                INSERT INTO welcome_settings (guild_id, is_enabled, member_increment, channel_id)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(guild_id) DO UPDATE SET
-                    is_enabled=excluded.is_enabled,
-                    member_increment=COALESCE(?, welcome_settings.member_increment),
-                    channel_id=COALESCE(?, welcome_settings.channel_id)
-                """,
-                (
-                    guild_id, int(is_enabled), member_increment, channel_id,
-                    member_increment, channel_id
-                )
+        await conn.execute(
+            """
+            INSERT INTO welcome_settings (guild_id, is_enabled, member_increment, channel_id)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(guild_id) DO UPDATE SET
+                is_enabled=excluded.is_enabled,
+                member_increment=COALESCE(?, welcome_settings.member_increment),
+                channel_id=COALESCE(?, welcome_settings.channel_id)
+            """,
+            (
+                guild_id, int(is_enabled), member_increment, channel_id,
+                member_increment, channel_id
             )
-            await conn.commit()
+        )
+        await conn.commit()
+        await conn.close()
 
 class LeaveDatabase:
     """退室メッセージの設定を管理するDB"""
@@ -127,19 +126,19 @@ class LeaveDatabase:
     @staticmethod
     async def init_database() -> None:
         conn = await get_db_conn()
-        async with conn:
-            await conn.execute(CREATE_LEAVE_TABLE_SQL)
-            await conn.commit()
+        await conn.execute(CREATE_LEAVE_TABLE_SQL)
+        await conn.commit()
+        await conn.close()
 
     @staticmethod
     async def get_settings(guild_id: int) -> Tuple[bool, Optional[int]]:
         conn = await get_db_conn()
-        async with conn:
-            async with conn.execute(
-                "SELECT is_enabled, channel_id FROM leave_settings WHERE guild_id = ?",
-                (guild_id,)
-            ) as cursor:
-                result = await cursor.fetchone()
+        async with conn.execute(
+            "SELECT is_enabled, channel_id FROM leave_settings WHERE guild_id = ?",
+            (guild_id,)
+        ) as cursor:
+            result = await cursor.fetchone()
+        await conn.close()
         return (
             bool(result[0]),
             result[1]
@@ -149,21 +148,21 @@ class LeaveDatabase:
     async def update_settings(guild_id: int, is_enabled: bool,
                               channel_id: Optional[int] = None) -> None:
         conn = await get_db_conn()
-        async with conn:
-            await conn.execute(
-                """
-                INSERT INTO leave_settings (guild_id, is_enabled, channel_id)
-                VALUES (?, ?, ?)
-                ON CONFLICT(guild_id) DO UPDATE SET
-                    is_enabled=excluded.is_enabled,
-                    channel_id=COALESCE(?, leave_settings.channel_id)
-                """,
-                (
-                    guild_id, int(is_enabled), channel_id,
-                    channel_id
-                )
+        await conn.execute(
+            """
+            INSERT INTO leave_settings (guild_id, is_enabled, channel_id)
+            VALUES (?, ?, ?)
+            ON CONFLICT(guild_id) DO UPDATE SET
+                is_enabled=excluded.is_enabled,
+                channel_id=COALESCE(?, leave_settings.channel_id)
+            """,
+            (
+                guild_id, int(is_enabled), channel_id,
+                channel_id
             )
-            await conn.commit()
+        )
+        await conn.commit()
+        await conn.close()
 
 ROLE_ID: Final[int] = 1255803402898898964
 
