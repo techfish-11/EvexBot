@@ -50,6 +50,16 @@ PROPHET_CONFIG: Final[dict] = {
         "name": "weekly",
         "period": 7,
         "fourier_order": 3
+    },
+    "monthly_seasonality": {
+        "name": "monthly",
+        "period": 30.5,
+        "fourier_order": 5
+    },
+    "yearly_seasonality": {
+        "name": "yearly",
+        "period": 365.25,
+        "fourier_order": 10
     }
 }
 
@@ -84,29 +94,45 @@ class GrowthPredictor:
         self.model.fit(X_poly, self.y)
 
     def _prepare_prophet_data(self) -> pd.DataFrame:
-        return pd.DataFrame({
-            "ds": [d.strftime("%Y-%m-%d") for d in self.join_dates],
-            "y": np.arange(1, len(self.join_dates) + 1)
-        })
+        """join_dates から日次累積データを作成"""
+        import pandas as pd
+        dates = [d.date() for d in self.join_dates]
+        df = pd.DataFrame({'ds': pd.to_datetime(dates)})
+        df = df.groupby('ds').size().reset_index(name='count')
+        df = df.set_index('ds').resample('D').sum().fillna(0).cumsum().reset_index()
+        df.columns = ['ds', 'y']
+        return df
 
     async def fit_prophet_model(self) -> Prophet:
-        self.df["ds"] = pd.to_datetime(self.df["ds"])
+        """Prophet モデルを構築してフィット"""
+        from prophet import Prophet
         model = Prophet(
             n_changepoints=PROPHET_CONFIG["n_changepoints"],
             changepoint_prior_scale=PROPHET_CONFIG["changepoint_prior_scale"],
-            seasonality_mode=PROPHET_CONFIG["seasonality_mode"]
+            seasonality_mode=PROPHET_CONFIG["seasonality_mode"],
+            daily_seasonality=False,
+            weekly_seasonality=False,
+            yearly_seasonality=False
         )
-        weekly = PROPHET_CONFIG["weekly_seasonality"]
-        model.add_seasonality(
-            name=weekly["name"],
-            period=weekly["period"],
-            fourier_order=weekly["fourier_order"]
-        )
-        await asyncio.to_thread(model.fit, self.df)
+        # カスタムシーズナリティを追加
+        model.add_seasonality(**PROPHET_CONFIG["weekly_seasonality"])
+        model.add_seasonality(**PROPHET_CONFIG["monthly_seasonality"])
+        model.add_seasonality(**PROPHET_CONFIG["yearly_seasonality"])
+        model.fit(self.df)
         return model
 
     async def predict(self, model: Optional[Prophet] = None) -> Optional[datetime]:
-        if self.model_type == "polynomial":
+        """prophet 用予測：過去日を除外し、target 以上になる最初の日付を返す"""
+        if self.model_type == "prophet" and model is not None:
+            future = model.make_future_dataframe(periods=PREDICTION_DAYS)
+            forecast = model.predict(future)
+            last_date = self.df["ds"].max()
+            forecast = forecast[forecast["ds"] > last_date]
+            df_target = forecast[forecast["yhat"] >= self.target]
+            if df_target.empty:
+                return None
+            return df_target.iloc[0]["ds"]
+        elif self.model_type == "polynomial":
             future_days = np.arange(
                 self.X[-1][0],
                 self.X[-1][0] + PREDICTION_DAYS
@@ -117,16 +143,17 @@ class GrowthPredictor:
             for i, pred in enumerate(predictions):
                 if pred >= self.target:
                     return datetime.fromordinal(int(future_days[i][0]))
-        elif self.model_type == "prophet":
-            future = model.make_future_dataframe(periods=PREDICTION_DAYS)
-            forecast = await asyncio.to_thread(model.predict, future)
-            for _, row in forecast.iterrows():
-                if row["yhat"] >= self.target:
-                    return row["ds"]
         return None
 
     async def generate_plot(self, target_date: datetime, model: Optional[Prophet] = None) -> io.BytesIO:
-        if self.model_type == "polynomial":
+        """予測グラフを生成"""
+        import matplotlib.pyplot as plt
+        from io import BytesIO
+        if self.model_type == "prophet" and model:
+            future = model.make_future_dataframe(periods=PREDICTION_DAYS)
+            forecast = model.predict(future)
+            fig = model.plot(forecast)
+        else:
             X_plot = np.linspace(
                 self.X[0][0],
                 target_date.toordinal(),
@@ -154,51 +181,11 @@ class GrowthPredictor:
                 label="Prediction",
                 linewidth=GRAPH_SETTINGS["linewidth"]
             )
-        elif self.model_type == "prophet":
-            forecast = await asyncio.to_thread(model.predict, model.make_future_dataframe(periods=PREDICTION_DAYS))
-            plt.figure(figsize=GRAPH_SIZE)
-            plt.scatter(
-                self.join_dates,
-                np.arange(1, len(self.join_dates) + 1),
-                color=GRAPH_SETTINGS["colors"]["actual"],
-                label="Actual Data",
-                alpha=GRAPH_SETTINGS["alpha"]
-            )
-            plt.plot(
-                forecast["ds"],
-                forecast["yhat"],
-                color=GRAPH_SETTINGS["colors"]["prediction"],
-                label="Prediction",
-                linewidth=GRAPH_SETTINGS["linewidth"]
-            )
 
-        # 目標値と予測日の線
-        plt.axhline(
-            y=self.target,
-            color=GRAPH_SETTINGS["colors"]["target"],
-            linestyle="--",
-            label=f"Target: {self.target}",
-            linewidth=GRAPH_SETTINGS["linewidth"]
-        )
-        plt.axvline(
-            x=target_date,
-            color=GRAPH_SETTINGS["colors"]["date"],
-            linestyle="--",
-            label=f"Predicted: {target_date.date()}",
-            linewidth=GRAPH_SETTINGS["linewidth"]
-        )
-        plt.xlabel("Join Date", fontsize=GRAPH_SETTINGS["fontsize"]["label"])
-        plt.ylabel("Member Count", fontsize=GRAPH_SETTINGS["fontsize"]["label"])
-        plt.title("Server Growth Prediction", fontsize=GRAPH_SETTINGS["fontsize"]["title"])
-        plt.legend()
-        plt.grid(True, linestyle="--", alpha=GRAPH_SETTINGS["alpha"])
-
-        # 画像として保存
-        buf = io.BytesIO()
-        plt.savefig(buf, format="png", dpi=100, bbox_inches="tight")
+        buf = BytesIO()
+        fig.savefig(buf, format="png")
         buf.seek(0)
-        plt.close()
-
+        plt.close(fig)
         return buf
 
     def get_model_score(self) -> float:
