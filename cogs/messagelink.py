@@ -8,7 +8,11 @@ class DeleteButtonView(discord.ui.View):
 
     @discord.ui.button(label="削除", style=discord.ButtonStyle.danger, custom_id="delete_embed_button")
     async def delete_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.message.delete()
+        try:
+            await interaction.message.delete()
+        except Exception as e:
+            await interaction.response.send_message("削除に失敗しました。", ephemeral=True)
+            print(f"Error deleting message: {e}")
 
 class MessageLink(commands.Cog):
     def __init__(self, bot):
@@ -30,7 +34,7 @@ class MessageLink(commands.Cog):
                 if not guild:
                     return
                 channel = guild.get_channel(channel_id)
-                if not channel:
+                if not channel or channel.is_nsfw():
                     return
                 target_message = await channel.fetch_message(message_id)
                 embed = discord.Embed(
