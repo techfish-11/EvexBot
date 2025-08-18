@@ -389,9 +389,12 @@ class MemberWelcomeCog(commands.Cog):
                     if m.joined_at:
                         join_dates.append(m.joined_at)
                 join_dates.sort()
-                # GrowthPredictorで予測実行
-                predictor = GrowthPredictor(join_dates, next_target, model_type="polynomial")
-                target_date = await predictor.predict()
+
+                # GrowthPredictorで予測実行（Prophetモデル）
+                predictor = GrowthPredictor(join_dates, next_target, model_type="prophet")
+                prophet_model = await predictor.fit_prophet_model()
+                target_date = await predictor.predict(prophet_model)
+
                 if target_date:
                     days = (target_date.date() - datetime.now().date()).days
                     new_content = (
