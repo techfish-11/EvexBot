@@ -4,14 +4,13 @@ from pathlib import Path
 from typing import Final, Literal, Optional, Tuple
 import logging
 import asyncio
+from .growth import GrowthPredictor
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
 import aiosqlite
-
-from .growth import GrowthPredictor
 
 DB_PATH = Path("data/welcome.db")
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -333,7 +332,7 @@ class MemberWelcomeCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member) -> None:
-        """メンバー参加時のイベントハンドラ（即時表示 + 後で予測を編集）"""
+        """メンバー参加時のイベントハンドラ"""
         if member.bot:
             return
 
@@ -344,7 +343,6 @@ class MemberWelcomeCog(commands.Cog):
             if not is_enabled:
                 return
 
-            # 参加マクロ対策
             now = datetime.now()
             last_time = self.last_welcome_time.get(member.guild.id)
             if last_time and now - last_time < timedelta(seconds=JOIN_COOLDOWN):
@@ -361,31 +359,53 @@ class MemberWelcomeCog(commands.Cog):
 
             member_count = len(member.guild.members)
             remainder = member_count % increment
-
+            # 次の目標値を算出
             if remainder == 0:
+                next_target = member_count + increment
                 message_text = WELCOME_MESSAGES["milestone"].format(
                     mention=member.mention,
                     member_count=member_count,
                     guild_name=member.guild.name
                 )
-                next_milestone = member_count
             else:
-                next_milestone = member_count + (increment - remainder)
+                next_target = member_count + (increment - remainder)
                 message_text = WELCOME_MESSAGES["normal"].format(
                     mention=member.mention,
                     member_count=member_count,
                     remaining=increment - remainder,
-                    next_milestone=next_milestone
+                    next_milestone=next_target
                 )
 
-            # 即時表示（予測は計算中と表示）
-            message_text += "\n\n目標到達予想: 計算中...（後で更新されます）"
-            sent_message = await channel.send(message_text)
 
-            # バックグラウンドで予測を行い、結果でメッセージを編集する
-            asyncio.create_task(
-                self._compute_and_edit_prediction(member.guild, sent_message, next_milestone)
-            )
+            # 初回送信：予測中
+            sent = await channel.send(f"{message_text}\n予測計算中…")
+
+
+            # バックグラウンドで予測してメッセージを更新
+            async def do_prediction():
+                # 全参加日時を取得
+                join_dates = []
+                async for m in member.guild.fetch_members(limit=None):
+                    if m.joined_at:
+                        join_dates.append(m.joined_at)
+                join_dates.sort()
+                # GrowthPredictorで予測実行
+                predictor = GrowthPredictor(join_dates, next_target, model_type="polynomial")
+                target_date = await predictor.predict()
+                if target_date:
+                    days = (target_date.date() - datetime.now().date()).days
+                    new_content = (
+                        f"{message_text}\n"
+                        f"次の目標({next_target}人)到達予測: {target_date.date()} ({days}日後)"
+                    )
+                else:
+                    new_content = f"{message_text}\n予測できませんでした。"
+                try:
+                    await sent.edit(content=new_content)
+                except Exception:
+                    pass
+
+            asyncio.create_task(do_prediction())
 
         except Exception as e:
             logger.error(
@@ -424,67 +444,6 @@ class MemberWelcomeCog(commands.Cog):
                 "Error processing member leave: %s", e,
                 exc_info=True
             )
-
-    async def _compute_and_edit_prediction(
-        self,
-        guild: discord.Guild,
-        message: discord.Message,
-        target: int
-    ) -> None:
-        """バックグラウンドで予測を行い、送信済メッセージを編集する"""
-        try:
-            # 参加日時データ収集（古い日付が先に来るようにソート）
-            join_dates = []
-            async for m in guild.fetch_members(limit=None):
-                if m.joined_at:
-                    join_dates.append(m.joined_at)
-            join_dates.sort()
-
-            if len(join_dates) < 2:
-                try:
-                    await message.edit(content=message.content + "\n予測: データが不足しているため計算できません。")
-                except Exception:
-                    logger.exception("Failed to edit message for insufficient data")
-                return
-
-            predictor = GrowthPredictor(join_dates, target, model_type="polynomial")
-
-            # 予測（polynomial は内部で同期処理なので await 可能な形にしてある）
-            predicted_date = await predictor.predict()
-
-            if not predicted_date:
-                try:
-                    await message.edit(content=message.content + "\n予測: 予測範囲内で目標に到達しませんでした。")
-                except Exception:
-                    logger.exception("Failed to edit message when no target reach")
-                return
-
-            # モデルスコアと日数計算
-            model_score = predictor.get_model_score()
-            days_until = (predicted_date.date() - datetime.now().date()).days
-            days_until_text = f"約{days_until}日後" if days_until >= 0 else f"{-days_until}日前（既に過ぎています）"
-
-            pred_text = (
-                f"\n予測到達日: {predicted_date.date()} ({days_until_text})\n"
-                f"予測精度: {model_score:.2f}"
-            )
-
-            try:
-                # 既存の「計算中」表示の下に追記する、安全のため append を使う
-                await message.edit(content=message.content.replace("目標到達予想: 計算中...（後で更新されます）", "目標到達予想: " + pred_text))
-            except Exception:
-                # それでも失敗したら追記する
-                try:
-                    await message.edit(content=message.content + pred_text)
-                except Exception:
-                    logger.exception("Failed to edit message with prediction result")
-
-        except Exception as e:
-            logger.error("Error computing prediction: %s", e, exc_info=True)
-            try:
-                await message.edit(content=message.content + "\n予測: エラーが発生しました。")
-            except Exception:
-                logger.exception("Failed to edit message after exception")
 
 
 async def setup(bot: commands.Bot) -> None:
