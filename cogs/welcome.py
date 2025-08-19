@@ -11,6 +11,8 @@ from discord import app_commands
 from discord.ext import commands
 
 import aiosqlite
+import io
+import matplotlib.pyplot as plt
 
 DB_PATH = Path("data/welcome.db")
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -362,6 +364,7 @@ class MemberWelcomeCog(commands.Cog):
             # 次の目標値を算出
             if remainder == 0:
                 next_target = member_count + increment
+                is_milestone = True
                 message_text = WELCOME_MESSAGES["milestone"].format(
                     mention=member.mention,
                     member_count=member_count,
@@ -369,6 +372,7 @@ class MemberWelcomeCog(commands.Cog):
                 )
             else:
                 next_target = member_count + (increment - remainder)
+                is_milestone = False
                 message_text = WELCOME_MESSAGES["normal"].format(
                     mention=member.mention,
                     member_count=member_count,
@@ -376,39 +380,87 @@ class MemberWelcomeCog(commands.Cog):
                     next_milestone=next_target
                 )
 
+            # 参加履歴取得
+            join_dates = []
+            async for m in member.guild.fetch_members(limit=None):
+                if m.joined_at:
+                    join_dates.append(m.joined_at)
+            join_dates.sort()
 
-            # 初回送信：予測中
-            sent = await channel.send(f"{message_text}\n予測計算中…")
-
-
-            # バックグラウンドで予測してメッセージを更新
-            async def do_prediction():
-                # 全参加日時を取得
-                join_dates = []
-                async for m in member.guild.fetch_members(limit=None):
-                    if m.joined_at:
-                        join_dates.append(m.joined_at)
-                join_dates.sort()
-
-                # GrowthPredictorで予測実行（Prophetモデル）
-                predictor = GrowthPredictor(join_dates, next_target, model_type="prophet")
-                prophet_model = await predictor.fit_prophet_model()
-                target_date = await predictor.predict(prophet_model)
-
-                if target_date:
-                    days = (target_date.date() - datetime.now().date()).days
-                    new_content = (
-                        f"{message_text}\n"
-                        f"次の目標({next_target}人)到達予測: {target_date.date()} ({days}日後)"
+            # グラフ画像生成
+            def create_growth_graph(join_dates, achieved_count):
+                if not join_dates:
+                    return None
+                # x: 日付, y: 累積人数
+                dates = [dt.date() for dt in join_dates]
+                unique_dates = sorted(set(dates))
+                counts = [sum(1 for d in dates if d <= ud) for ud in unique_dates]
+                fig, ax = plt.subplots(figsize=(6, 3))
+                ax.plot(unique_dates, counts, marker="o", color="#4e79a7")
+                ax.set_title("Member Growth History")
+                ax.set_xlabel("Date")
+                ax.set_ylabel("Members")
+                ax.grid(True, linestyle="--", alpha=0.5)
+                # 達成人数を画像上に英語で
+                if achieved_count:
+                    ax.annotate(
+                        f"Milestone: {achieved_count} members!",
+                        xy=(unique_dates[-1], counts[-1]),
+                        xytext=(unique_dates[-1], counts[-1]+2),
+                        color="crimson",
+                        fontsize=12,
+                        fontweight="bold",
+                        arrowprops=dict(facecolor='crimson', shrink=0.05),
+                        ha="right"
                     )
-                else:
-                    new_content = f"{message_text}\n予測できませんでした。"
-                try:
-                    await sent.edit(content=new_content)
-                except Exception:
-                    pass
+                buf = io.BytesIO()
+                plt.tight_layout()
+                plt.savefig(buf, format="png", dpi=120)
+                plt.close(fig)
+                buf.seek(0)
+                return buf
 
-            asyncio.create_task(do_prediction())
+            graph_buf = create_growth_graph(join_dates, member_count if is_milestone else None)
+
+            # GrowthPredictorで予測実行（Prophetモデル）
+            predictor = GrowthPredictor(join_dates, next_target, model_type="prophet")
+            prophet_model = await predictor.fit_prophet_model()
+            target_date = await predictor.predict(prophet_model)
+
+            # Embed作成
+            embed = discord.Embed(
+                title="🎉 Welcome EvexDevelopers! 🎉" if is_milestone else "Welcome!",
+                description=(
+                    f"{member.mention} さん、ようこそ！\n"
+                    f"現在のメンバー数: **{member_count}人**\n"
+                    + (f"{member.guild.name}のメンバーが{member_count}人になりました！皆さんありがとうございます！\n" if is_milestone else f"あと **{increment - remainder} 人** で **{next_target}人** 達成です！\n")
+                ),
+                color=discord.Color.gold() if is_milestone else discord.Color.blue(),
+                timestamp=datetime.now()
+            )
+            embed.set_author(name=member.display_name, icon_url=member.display_avatar.url)
+            if target_date:
+                days = (target_date.date() - datetime.now().date()).days
+                embed.add_field(
+                    name="Next milestone prediction",
+                    value=f"{next_target} members: {target_date.date()} ({days} days left)",
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="Next milestone prediction",
+                    value="Could not predict.",
+                    inline=False
+                )
+            embed.set_footer(text="EvexBot | Member Growth")
+
+            file = None
+            if graph_buf:
+                file = discord.File(graph_buf, filename="growth.png")
+                embed.set_image(url="attachment://growth.png")
+
+            # 送信
+            await channel.send(embed=embed, file=file)
 
         except Exception as e:
             logger.error(
@@ -447,6 +499,105 @@ class MemberWelcomeCog(commands.Cog):
                 "Error processing member leave: %s", e,
                 exc_info=True
             )
+
+    @commands.command(name="milestonetest")
+    async def milestonetest(self, ctx: commands.Context):
+        """マイルストーンお祝いEmbed＋グラフのテスト送信（管理者専用）"""
+        # 実行者制限
+        if ctx.author.id != 1241397634095120438:
+            await ctx.send("権限がありません。")
+            return
+
+        member = ctx.author
+        guild = ctx.guild
+        if not guild:
+            await ctx.send("サーバー内で実行してください。")
+            return
+
+        # 設定取得
+        is_enabled, increment, channel_id = await WelcomeDatabase.get_settings(guild.id)
+        member_count = len(guild.members)
+        next_target = member_count + increment
+        is_milestone = True  # 強制的にマイルストーン扱い
+
+        # 参加履歴取得
+        join_dates = []
+        async for m in guild.fetch_members(limit=None):
+            if m.joined_at:
+                join_dates.append(m.joined_at)
+        join_dates.sort()
+
+        # グラフ画像生成
+        def create_growth_graph(join_dates, achieved_count):
+            if not join_dates:
+                return None
+            dates = [dt.date() for dt in join_dates]
+            unique_dates = sorted(set(dates))
+            counts = [sum(1 for d in dates if d <= ud) for ud in unique_dates]
+            fig, ax = plt.subplots(figsize=(6, 3))
+            ax.plot(unique_dates, counts, marker="o", color="#4e79a7")
+            ax.set_title("Member Growth History")
+            ax.set_xlabel("Date")
+            ax.set_ylabel("Members")
+            ax.grid(True, linestyle="--", alpha=0.5)
+            if achieved_count:
+                ax.annotate(
+                    f"Milestone: {achieved_count} members!",
+                    xy=(unique_dates[-1], counts[-1]),
+                    xytext=(unique_dates[-1], counts[-1]+2),
+                    color="crimson",
+                    fontsize=12,
+                    fontweight="bold",
+                    arrowprops=dict(facecolor='crimson', shrink=0.05),
+                    ha="right"
+                )
+            buf = io.BytesIO()
+            plt.tight_layout()
+            plt.savefig(buf, format="png", dpi=120)
+            plt.close(fig)
+            buf.seek(0)
+            return buf
+
+        graph_buf = create_growth_graph(join_dates, member_count)
+
+        # GrowthPredictorで予測実行（Prophetモデル）
+        predictor = GrowthPredictor(join_dates, next_target, model_type="prophet")
+        prophet_model = await predictor.fit_prophet_model()
+        target_date = await predictor.predict(prophet_model)
+
+        # Embed作成
+        embed = discord.Embed(
+            title="🎉 Welcome EvexDevelopers! 🎉",
+            description=(
+                f"{member.mention} さん、ようこそ！\n"
+                f"現在のメンバー数: **{member_count}人**\n"
+                f"{guild.name}のメンバーが{member_count}人になりました！皆さんありがとうございます！\n"
+            ),
+            color=discord.Color.gold(),
+            timestamp=datetime.now()
+        )
+        embed.set_author(name=member.display_name, icon_url=member.display_avatar.url)
+        if target_date:
+            days = (target_date.date() - datetime.now().date()).days
+            embed.add_field(
+                name="Next milestone prediction",
+                value=f"{next_target} members: {target_date.date()} ({days} days left)",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="Next milestone prediction",
+                value="Could not predict.",
+                inline=False
+            )
+        embed.set_footer(text="EvexBot | Member Growth")
+
+        file = None
+        if graph_buf:
+            file = discord.File(graph_buf, filename="growth.png")
+            embed.set_image(url="attachment://growth.png")
+
+        await ctx.send(embed=embed, file=file)
 
 
 async def setup(bot: commands.Bot) -> None:
