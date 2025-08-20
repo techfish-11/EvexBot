@@ -375,89 +375,116 @@ class MemberWelcomeCog(commands.Cog):
                     join_dates.append(m.joined_at)
             join_dates.sort()
 
-            # グラフ画像生成
-            def create_growth_graph(join_dates, achieved_count):
-                if not join_dates:
-                    return None
-                dates = [dt.date() for dt in join_dates]
-                unique_dates = sorted(set(dates))
-                counts = [sum(1 for d in dates if d <= ud) for ud in unique_dates]
-                fig, ax = plt.subplots(figsize=(6, 3))
-                ax.plot(unique_dates, counts, marker="o", color="#4e79a7")
-                ax.set_title("Member Growth History")
-                ax.set_xlabel("Date")
-                ax.set_ylabel("Members")
-                ax.grid(True, linestyle="--", alpha=0.5)
-                if achieved_count:
-                    ax.annotate(
-                        f"Milestone: {achieved_count} members!",
-                        xy=(unique_dates[-1], counts[-1]),
-                        xytext=(unique_dates[-1], counts[-1]+2),
-                        color="crimson",
-                        fontsize=12,
-                        fontweight="bold",
-                        arrowprops=dict(facecolor='crimson', shrink=0.05),
-                        ha="right"
-                    )
-                buf = io.BytesIO()
-                plt.tight_layout()
-                plt.savefig(buf, format="png", dpi=120)
-                plt.close(fig)
-                buf.seek(0)
-                return buf
+            if is_milestone:
+                # グラフ画像生成
+                def create_growth_graph(join_dates, achieved_count):
+                    if not join_dates:
+                        return None
+                    dates = [dt.date() for dt in join_dates]
+                    unique_dates = sorted(set(dates))
+                    counts = [sum(1 for d in dates if d <= ud) for ud in unique_dates]
+                    fig, ax = plt.subplots(figsize=(6, 3))
+                    ax.plot(unique_dates, counts, marker="o", color="#4e79a7")
+                    ax.set_title("Member Growth History")
+                    ax.set_xlabel("Date")
+                    ax.set_ylabel("Members")
+                    ax.grid(True, linestyle="--", alpha=0.5)
+                    if achieved_count:
+                        ax.annotate(
+                            f"Milestone: {achieved_count} members!",
+                            xy=(unique_dates[-1], counts[-1]),
+                            xytext=(unique_dates[-1], counts[-1]+2),
+                            color="crimson",
+                            fontsize=12,
+                            fontweight="bold",
+                            arrowprops=dict(facecolor='crimson', shrink=0.05),
+                            ha="right"
+                        )
+                    buf = io.BytesIO()
+                    plt.tight_layout()
+                    plt.savefig(buf, format="png", dpi=120)
+                    plt.close(fig)
+                    buf.seek(0)
+                    return buf
 
-            graph_buf = create_growth_graph(join_dates, member_count if is_milestone else None)
+                graph_buf = create_growth_graph(join_dates, member_count)
 
-            # Embed作成（最初はNext milestone predictionフィールドなし）
-            embed = discord.Embed(
-                title="🎉 Welcome EvexDevelopers! 🎉" if is_milestone else "Welcome!",
-                description=(
+                # Embed作成（最初はNext milestone predictionフィールドなし）
+                embed = discord.Embed(
+                    title="🎉 Welcome EvexDevelopers! 🎉",
+                    description=(
+                        f"{member.mention} さん、ようこそ！\n"
+                        f"現在のメンバー数: **{member_count}人**\n"
+                        f"{member.guild.name}のメンバーが{member_count}人になりました！皆さんありがとうございます！\n"
+                    ),
+                    color=discord.Color.gold(),
+                    timestamp=datetime.now()
+                )
+                embed.set_author(name=member.display_name, icon_url=member.display_avatar.url)
+                embed.set_footer(text="EvexBot | Member Growth")
+
+                file = None
+                if graph_buf:
+                    file = discord.File(graph_buf, filename="growth.png")
+                    embed.set_image(url="attachment://growth.png")
+
+                # まずEmbedのみ送信
+                sent_msg = await channel.send(embed=embed, file=file)
+
+                # 予測計算が終わったらembedをedit
+                async def do_prediction_and_edit():
+                    # GrowthPredictorで予測実行（Prophetモデル）
+                    predictor = GrowthPredictor(join_dates, next_target, model_type="prophet")
+                    prophet_model = await predictor.fit_prophet_model()
+                    target_date = await predictor.predict(prophet_model)
+
+                    # Embedを再構築してフィールド追加
+                    new_embed = embed.copy()
+                    if target_date:
+                        days = (target_date.date() - datetime.now().date()).days
+                        new_embed.add_field(
+                            name="Next milestone prediction",
+                            value=f"{next_target} members: {target_date.date()} ({days} days left)",
+                            inline=False
+                        )
+                    else:
+                        new_embed.add_field(
+                            name="Next milestone prediction",
+                            value="Could not predict.",
+                            inline=False
+                        )
+                    try:
+                        await sent_msg.edit(embed=new_embed)
+                    except Exception:
+                        pass
+
+                asyncio.create_task(do_prediction_and_edit())
+            else:
+                # Embedや画像なし、テキストメッセージのみ送信
+                message = (
                     f"{member.mention} さん、ようこそ！\n"
-                    f"現在のメンバー数: **{member_count}人**\n"
-                    + (f"{member.guild.name}のメンバーが{member_count}人になりました！皆さんありがとうございます！\n" if is_milestone else f"あと **{increment - remainder} 人** で **{next_target}人** 達成です！\n")
-                ),
-                color=discord.Color.gold() if is_milestone else discord.Color.blue(),
-                timestamp=datetime.now()
-            )
-            embed.set_author(name=member.display_name, icon_url=member.display_avatar.url)
-            embed.set_footer(text="EvexBot | Member Growth")
+                    f"現在のメンバー数: {member_count}人\n"
+                    f"あと {increment - remainder} 人で {next_target}人達成です！"
+                )
+                sent_msg = await channel.send(message)
 
-            file = None
-            if graph_buf:
-                file = discord.File(graph_buf, filename="growth.png")
-                embed.set_image(url="attachment://growth.png")
+                # 予測計算が終わったらメッセージをeditしてNext milestone predictionを追記
+                async def do_prediction_and_edit_text():
+                    predictor = GrowthPredictor(join_dates, next_target, model_type="prophet")
+                    prophet_model = await predictor.fit_prophet_model()
+                    target_date = await predictor.predict(prophet_model)
 
-            # まずEmbedのみ送信
-            sent_msg = await channel.send(embed=embed, file=file)
+                    if target_date:
+                        days = (target_date.date() - datetime.now().date()).days
+                        prediction_text = f"\nNext milestone prediction: {next_target} members: {target_date.date()} ({days} days left)"
+                    else:
+                        prediction_text = "\nNext milestone prediction: Could not predict."
+                    try:
+                        await sent_msg.edit(content=message + prediction_text)
+                    except Exception:
+                        pass
 
-            # 予測計算が終わったらembedをedit
-            async def do_prediction_and_edit():
-                # GrowthPredictorで予測実行（Prophetモデル）
-                predictor = GrowthPredictor(join_dates, next_target, model_type="prophet")
-                prophet_model = await predictor.fit_prophet_model()
-                target_date = await predictor.predict(prophet_model)
-
-                # Embedを再構築してフィールド追加
-                new_embed = embed.copy()
-                if target_date:
-                    days = (target_date.date() - datetime.now().date()).days
-                    new_embed.add_field(
-                        name="Next milestone prediction",
-                        value=f"{next_target} members: {target_date.date()} ({days} days left)",
-                        inline=False
-                    )
-                else:
-                    new_embed.add_field(
-                        name="Next milestone prediction",
-                        value="Could not predict.",
-                        inline=False
-                    )
-                try:
-                    await sent_msg.edit(embed=new_embed)
-                except Exception:
-                    pass
-
-            asyncio.create_task(do_prediction_and_edit())
+                asyncio.create_task(do_prediction_and_edit_text())
 
         except Exception as e:
             logger.error(
