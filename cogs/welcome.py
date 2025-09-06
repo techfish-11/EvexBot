@@ -443,14 +443,14 @@ class MemberWelcomeCog(commands.Cog):
                     if target_date:
                         days = (target_date.date() - datetime.now().date()).days
                         new_embed.add_field(
-                            name="Next milestone prediction",
-                            value=f"{next_target} members: {target_date.date()} ({days} days left)",
+                            name="次の目標到達予測",
+                            value=f"{next_target}人: {target_date.date()} (あと{days}日)",
                             inline=False
                         )
                     else:
                         new_embed.add_field(
-                            name="Next milestone prediction",
-                            value="Could not predict.",
+                            name="次の目標到達予測",
+                            value="予測できませんでした。",
                             inline=False
                         )
                     try:
@@ -476,9 +476,9 @@ class MemberWelcomeCog(commands.Cog):
 
                     if target_date:
                         days = (target_date.date() - datetime.now().date()).days
-                        prediction_text = f"\nNext milestone prediction: {next_target} members: {target_date.date()} ({days} days left)"
+                        prediction_text = f"\次の目標到達予測: {next_target}人: {target_date.date()} (あと{days}日)"
                     else:
-                        prediction_text = "\nNext milestone prediction: Could not predict."
+                        prediction_text = "\次の目標到達予測: 予測できませんでした。"
                     try:
                         await sent_msg.edit(content=message + prediction_text)
                     except Exception:
@@ -616,14 +616,14 @@ class MemberWelcomeCog(commands.Cog):
             if target_date:
                 days = (target_date.date() - datetime.now().date()).days
                 new_embed.add_field(
-                    name="Next milestone prediction",
-                    value=f"{next_target} members: {target_date.date()} ({days} days left)",
+                    name="次の目標到達予測",
+                    value=f"{next_target}人: {target_date.date()} (あと{days}日)",
                     inline=False
                 )
             else:
                 new_embed.add_field(
-                    name="Next milestone prediction",
-                    value="Could not predict.",
+                    name="次の目標到達予測",
+                    value="予測できませんでした。",
                     inline=False
                 )
             try:
