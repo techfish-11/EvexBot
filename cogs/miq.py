@@ -1,3 +1,4 @@
+# https://github.com/evex-dev/Swiftly-bot/blob/main/lib/miq.py
 import discord
 from discord.ext import commands
 from lib.miq import MakeItQuote
