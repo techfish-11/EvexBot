@@ -75,9 +75,7 @@ class Sindan(commands.Cog):
         )
         embed.add_field(name="相性スコア", value=f"**{score} / 100**", inline=False)
         embed.add_field(name="コメント", value=comment, inline=False)
-        embed.set_thumbnail(url=user1.display_avatar.url)
-        embed.set_image(url=user2.display_avatar.url)
-        embed.set_footer(text="※この診断はジョークです。真に受けないでね！")
+        embed.set_footer(text="※ネタ機能です。真に受けないで。")
 
         await interaction.response.send_message(embed=embed)
 
