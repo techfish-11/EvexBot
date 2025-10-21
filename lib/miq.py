@@ -25,6 +25,7 @@ class MakeItQuote:
 
         # Default settings
         self.default_font_size = 72
+        self.default_author_font_size = 36
         self.default_text_color = (255, 255, 255)
         self.default_shadow_color = (0, 0, 0, 220)
         self.default_quote_width = 25
@@ -322,7 +323,7 @@ class MakeItQuote:
             # Process fonts in parallel
             def prepare_fonts():
                 quote_font = self._get_font(font_path, font_size)
-                author_font = self._get_font(font_path, font_size // 2)
+                author_font = self._get_font(font_path, self.default_author_font_size)
                 return quote_font, author_font
 
             # Execute background and font preparation in parallel
@@ -340,20 +341,28 @@ class MakeItQuote:
             text_draw = ImageDraw.Draw(text_layer)
 
             # Process quote text
-            wrapped_quote = self._wrap_text(quote, width=(width - 100) // max(1, quote_font.getbbox("A")[2]))
+            # 折り返し幅を設定
+            max_chars_per_line = min(80, max(10, int(width * 0.8 // max(1, quote_font.getbbox("あ")[2]))))
+            wrapped_quote = self._wrap_text(quote, width=max_chars_per_line)
             total_quote_height = len(wrapped_quote) * (font_size + 10)
 
-            # Add quote marks
-            quote_mark_size = int(font_size * 2.5)
-            quote_mark_position = (width // 8, height // 6)
-            self._add_text_with_effects_parallel(
-                text_draw, quote_mark_position, '"',
-                self._get_font(font_path, quote_mark_size),
-                text_color, shadow_color
-            )
 
             # Draw quote text lines on text_layer in parallel
             start_y = max((height - total_quote_height) // 2, height // 3)
+
+            # Add quote marks
+            FIXED_QUOTE_MARK_SIZE = 120  # 固定サイズ（必要に応じて調整）
+            # テキスト量によって上下方向に移動
+            quote_mark_y = height // 6
+            if len(wrapped_quote) > 5:
+                quote_mark_y = max(height // 12, start_y - FIXED_QUOTE_MARK_SIZE // 2)
+            quote_mark_position = (width // 8, quote_mark_y)
+            self._add_text_with_effects_parallel(
+                text_draw, quote_mark_position, '"',
+                self._get_font(font_path, FIXED_QUOTE_MARK_SIZE),
+                text_color, shadow_color
+            )
+
             def draw_text_line(line_data):
                 try:
                     line, y_pos = line_data

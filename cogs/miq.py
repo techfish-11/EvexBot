@@ -27,11 +27,59 @@ class MakeItQuoteCog(commands.Cog):
         if self.session:
             await self.session.close()
 
-    @commands.command(
+    @commands.group(
         name="miq",
-        description="返信先のメッセージとその人のアイコンでMake It Quoteを作成します"
+        description="Make It Quoteコマンドグループ"
     )
-    async def make_it_quote(
+    async def miq(self, ctx: commands.Context):
+        if ctx.invoked_subcommand is None:
+            # サブコマンドなしの場合は従来の単体名言
+            # プライバシーモードのユーザーを無視
+            privacy_cog = self.bot.get_cog("Privacy")
+            if privacy_cog and privacy_cog.is_private_user(ctx.author.id):
+                return
+
+            try:
+                # 返信先のメッセージを取得
+                if not ctx.message.reference:
+                    await ctx.send("返信先のメッセージが必要です。")
+                    return
+
+                async with ctx.typing():
+                    reference_message = await ctx.channel.fetch_message(ctx.message.reference.message_id)
+                    quote = reference_message.content
+                    author = reference_message.author.display_name
+
+                    # アイコンを取得、キャッシュを利用
+                    avatar_url = reference_message.author.avatar.url
+                    if avatar_url in self.avatar_cache:
+                        avatar_image = self.avatar_cache[avatar_url]
+                    else:
+                        async with self.session.get(avatar_url) as response:
+                            if response.status != 200:
+                                raise Exception(f"アバター画像の取得に失敗しました: {response.status}")
+                            avatar_bytes = await response.read()
+                            avatar_image = await asyncio.to_thread(Image.open, BytesIO(avatar_bytes))
+                            self.avatar_cache[avatar_url] = avatar_image
+
+                    # Make It Quoteを作成
+                    quote_image = await asyncio.to_thread(self.miq.create_quote, quote=quote, author=author, background_image=avatar_image)
+
+                    # 画像を一時ファイルに保存
+                    with BytesIO() as image_binary:
+                        await asyncio.to_thread(quote_image.save, image_binary, "PNG")
+                        image_binary.seek(0)
+                        await ctx.send(file=discord.File(fp=image_binary, filename="quote.png"))
+
+            except Exception as e:
+                logger.error("Error in miq command: %s", e, exc_info=True)
+                await ctx.send(f"エラーが発生しました: {e}")
+
+    @miq.command(
+        name="all",
+        description="返信先のメッセージと、同じ人が連続で送信したメッセージをまとめて名言化します"
+    )
+    async def miq_all(
         self,
         ctx: commands.Context
     ) -> None:
@@ -41,18 +89,27 @@ class MakeItQuoteCog(commands.Cog):
             return
 
         try:
-            # 返信先のメッセージを取得
             if not ctx.message.reference:
                 await ctx.send("返信先のメッセージが必要です。")
                 return
 
             async with ctx.typing():
                 reference_message = await ctx.channel.fetch_message(ctx.message.reference.message_id)
-                quote = reference_message.content
                 author = reference_message.author.display_name
+                avatar_url = reference_message.author.avatar.url
+
+                # 連続メッセージをさかのぼって取得
+                messages = [reference_message]
+                async for msg in ctx.channel.history(limit=20, before=reference_message.created_at, oldest_first=False):
+                    if msg.author.id == reference_message.author.id:
+                        messages.insert(0, msg)
+                    else:
+                        break
+
+                # メッセージ内容を結合
+                quote = "\n".join([m.content for m in messages if m.content.strip()])
 
                 # アイコンを取得、キャッシュを利用
-                avatar_url = reference_message.author.avatar.url
                 if avatar_url in self.avatar_cache:
                     avatar_image = self.avatar_cache[avatar_url]
                 else:
@@ -63,17 +120,16 @@ class MakeItQuoteCog(commands.Cog):
                         avatar_image = await asyncio.to_thread(Image.open, BytesIO(avatar_bytes))
                         self.avatar_cache[avatar_url] = avatar_image
 
-                # Make It Quoteを作成 using asynchronous thread for blocking operation
+                # Make It Quoteを作成
                 quote_image = await asyncio.to_thread(self.miq.create_quote, quote=quote, author=author, background_image=avatar_image)
 
-                # 画像を一時ファイルに保存
                 with BytesIO() as image_binary:
                     await asyncio.to_thread(quote_image.save, image_binary, "PNG")
                     image_binary.seek(0)
                     await ctx.send(file=discord.File(fp=image_binary, filename="quote.png"))
 
         except Exception as e:
-            logger.error("Error in make_it_quote command: %s", e, exc_info=True)
+            logger.error("Error in miq max command: %s", e, exc_info=True)
             await ctx.send(f"エラーが発生しました: {e}")
 
 
