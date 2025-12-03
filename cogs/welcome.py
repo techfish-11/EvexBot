@@ -42,14 +42,12 @@ WELCOME_MESSAGES: Final[dict] = {
         "🎉🎉🎉 お祝い 🎉🎉🎉\n"
         "{mention} さん、ようこそ！\n"
         "{member_count}人達成！\n"
-        "{guild_name}のメンバーが{member_count}人になりました！皆さんありがとうございます！\n"
-        "すべてのwelcomeメッセージに<#1445478071221223515>で自己紹介してくれると嬉しいです！"
+        "{guild_name}のメンバーが{member_count}人になりました！皆さんありがとうございます！"
     ),
     "normal": (
         "{mention} さん、ようこそ！\n"
         "現在のメンバー数: {member_count}人\n"
-        "あと {remaining} 人で {next_milestone}人達成です！\n"
-        "すべてのwelcomeメッセージに<#1445478071221223515>で自己紹介してくれると嬉しいです！"
+        "あと {remaining} 人で {next_milestone}人達成です！"
     )
 }
 
@@ -417,8 +415,7 @@ class MemberWelcomeCog(commands.Cog):
                     description=(
                         f"{member.mention} さん、ようこそ！\n"
                         f"現在のメンバー数: **{member_count}人**\n"
-                        f"{member.guild.name}のメンバーが{member_count}人になりました！皆さんありがとうございます！\n"
-                        "すべてのwelcomeメッセージに<#1445478071221223515>で自己紹介してくれると嬉しいです！"
+                        f"{member.guild.name}のメンバーが{member_count}人になりました！皆さんありがとうございます！"
                     ),
                     color=discord.Color.gold(),
                     timestamp=datetime.now()
@@ -467,8 +464,7 @@ class MemberWelcomeCog(commands.Cog):
                 message = (
                     f"{member.mention} さん、ようこそ！\n"
                     f"現在のメンバー数: {member_count}人\n"
-                    f"あと {increment - remainder} 人で {next_target}人達成です！\n"
-                    "すべてのwelcomeメッセージに<#1445478071221223515>で自己紹介してくれると嬉しいです！"
+                    f"あと {increment - remainder} 人で {next_target}人達成です！"
                 )
                 sent_msg = await channel.send(message)
 
@@ -594,8 +590,7 @@ class MemberWelcomeCog(commands.Cog):
             description=(
                 f"{member.mention} さん、ようこそ！\n"
                 f"現在のメンバー数: **{member_count}人**\n"
-                f"{guild.name}のメンバーが{member_count}人になりました！皆さんありがとうございます！\n"
-                "すべてのwelcomeメッセージに<#1445478071221223515>で自己紹介してくれると嬉しいです！"
+                f"{guild.name}のメンバーが{member_count}人になりました！皆さんありがとうございます！"
             ),
             color=discord.Color.gold(),
             timestamp=datetime.now()
