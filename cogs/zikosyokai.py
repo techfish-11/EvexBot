@@ -136,5 +136,6 @@ class Zikosyokai(commands.Cog):
 			self.logger.exception("チャンネル確認中にエラーが発生しました: %s", e)
 
 
-async def async_setup(bot: commands.Bot):
-	await bot.add_cog(Zikosyokai(bot))
+
+async def setup(bot: commands.Bot) -> None:
+    await bot.add_cog(Zikosyokai(bot))
