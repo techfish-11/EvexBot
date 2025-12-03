@@ -42,12 +42,14 @@ WELCOME_MESSAGES: Final[dict] = {
         "🎉🎉🎉 お祝い 🎉🎉🎉\n"
         "{mention} さん、ようこそ！\n"
         "{member_count}人達成！\n"
-        "{guild_name}のメンバーが{member_count}人になりました！皆さんありがとうございます！"
+        "{guild_name}のメンバーが{member_count}人になりました！皆さんありがとうございます！\n"
+        "すべてのwelcomeメッセージに<#1445478071221223515>で自己紹介してくれると嬉しいです！"
     ),
     "normal": (
         "{mention} さん、ようこそ！\n"
         "現在のメンバー数: {member_count}人\n"
-        "あと {remaining} 人で {next_milestone}人達成です！"
+        "あと {remaining} 人で {next_milestone}人達成です！\n"
+        "すべてのwelcomeメッセージに<#1445478071221223515>で自己紹介してくれると嬉しいです！"
     )
 }
 
@@ -416,6 +418,7 @@ class MemberWelcomeCog(commands.Cog):
                         f"{member.mention} さん、ようこそ！\n"
                         f"現在のメンバー数: **{member_count}人**\n"
                         f"{member.guild.name}のメンバーが{member_count}人になりました！皆さんありがとうございます！\n"
+                        "すべてのwelcomeメッセージに<#1445478071221223515>で自己紹介してくれると嬉しいです！"
                     ),
                     color=discord.Color.gold(),
                     timestamp=datetime.now()
@@ -464,7 +467,8 @@ class MemberWelcomeCog(commands.Cog):
                 message = (
                     f"{member.mention} さん、ようこそ！\n"
                     f"現在のメンバー数: {member_count}人\n"
-                    f"あと {increment - remainder} 人で {next_target}人達成です！"
+                    f"あと {increment - remainder} 人で {next_target}人達成です！\n"
+                    "すべてのwelcomeメッセージに<#1445478071221223515>で自己紹介してくれると嬉しいです！"
                 )
                 sent_msg = await channel.send(message)
 
@@ -476,9 +480,9 @@ class MemberWelcomeCog(commands.Cog):
 
                     if target_date:
                         days = (target_date.date() - datetime.now().date()).days
-                        prediction_text = f"\次の目標到達予測: {next_target}人: {target_date.date()} (あと{days}日)"
+                        prediction_text = f"\n次の目標到達予測: {next_target}人: {target_date.date()} (あと{days}日)"
                     else:
-                        prediction_text = "\次の目標到達予測: 予測できませんでした。"
+                        prediction_text = "\n次の目標到達予測: 予測できませんでした。"
                     try:
                         await sent_msg.edit(content=message + prediction_text)
                     except Exception:
@@ -591,6 +595,7 @@ class MemberWelcomeCog(commands.Cog):
                 f"{member.mention} さん、ようこそ！\n"
                 f"現在のメンバー数: **{member_count}人**\n"
                 f"{guild.name}のメンバーが{member_count}人になりました！皆さんありがとうございます！\n"
+                "すべてのwelcomeメッセージに<#1445478071221223515>で自己紹介してくれると嬉しいです！"
             ),
             color=discord.Color.gold(),
             timestamp=datetime.now()
