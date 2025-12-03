@@ -14,7 +14,7 @@ class Zikosyokai(commands.Cog):
 	# 変更したいチャンネルIDをここにセット
 	TARGET_CHANNEL_ID: int = 1445478071221223515
 	# footerに付与するマーカー（検出用）
-	MARKER: str = "evexbot_intro_v1"
+	MARKER: str = "EvexBot"
 	# チェックマーク絵文字
 	CHECK_EMOJI: str = "✅"
 
@@ -25,7 +25,7 @@ class Zikosyokai(commands.Cog):
 		"自己紹介テンプレート\n\n"
 		"- 名前: \n"
 		"- 得意分野: \n"
-		"- ポートフォリオ: \n"
+		"- SNSリンク: \n"
 		"- 一言: \n\n"
 		f"{MARKER}\n"
 		"```"
