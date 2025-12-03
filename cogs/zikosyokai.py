@@ -19,12 +19,16 @@ class Zikosyokai(commands.Cog):
 	CHECK_EMOJI: str = "✅"
 
 	INTRO_TITLE = "自己紹介テンプレート"
-	INTRO_DESCRIPTION = (
+	# コードブロックで送信するテンプレ（MARKER を含めて検出しやすくする）
+	INTRO_CODEBLOCK: str = (
+		"```text\n"
 		"自己紹介テンプレート\n\n"
-		"**- 名前: **\n"
-		"**- 得意分野: **\n"
-		"**- ポートフォリオ: **\n"
-		"**- 一言: **\n\n"
+		"- 名前: \n"
+		"- 得意分野: \n"
+		"- ポートフォリオ: \n"
+		"- 一言: \n\n"
+		f"{MARKER}\n"
+		"```"
 	)
 
 	def __init__(self, bot: commands.Bot):
@@ -59,10 +63,9 @@ class Zikosyokai(commands.Cog):
 					# 削除に失敗しても続行
 					self.logger.exception("古いテンプレの削除に失敗しました: %s", e)
 
-	def _build_intro_embed(self) -> discord.Embed:
-		embed = discord.Embed(title=self.INTRO_TITLE, description=self.INTRO_DESCRIPTION, color=0x66CCFF)
-		embed.set_footer(text=self.MARKER)
-		return embed
+	def _build_intro_message(self) -> str:
+		"""コードブロック形式のテンプレ本文を返す（contentで送信する）"""
+		return self.INTRO_CODEBLOCK
 
 	async def ensure_template_at_bottom(self, channel: discord.TextChannel):
 		"""指定チャンネルにテンプレが一番下にあるか確認し、なければ再配置"""
@@ -79,9 +82,9 @@ class Zikosyokai(commands.Cog):
 
 			# 古いテンプレを削除
 			await self._find_and_delete_old_templates(channel)
-			# 新しいテンプレを投稿
+			# 新しいテンプレを投稿（コードブロック形式を content にして送信）
 			try:
-				await channel.send(embed=self._build_intro_embed())
+				await channel.send(self._build_intro_message())
 				self.logger.info("テンプレを再投稿しました。")
 			except Exception as e:
 				self.logger.exception("テンプレの投稿に失敗しました: %s", e)
