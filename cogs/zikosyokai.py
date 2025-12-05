@@ -18,7 +18,9 @@ class Zikosyokai(commands.Cog):
 	# チェックマーク絵文字
 	CHECK_EMOJI: str = "✅"
 
+ # もういらないかも
 	INTRO_TITLE = "自己紹介テンプレート"
+
 	# コードブロックで送信するテンプレ（MARKER を含めて検出しやすくする）
 	INTRO_CODEBLOCK: str = (
 		"{MARKER} \n"
