@@ -28,7 +28,7 @@ class Zikosyokai(commands.Cog):
 		"- SNSリンク: \n"
 		"- 一言: \n"
 		"```\n"
-		f"{MARKER}"
+		f"-# {MARKER}"
 	)
 
 	def __init__(self, bot: commands.Bot):
