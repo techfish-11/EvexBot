@@ -21,14 +21,14 @@ class Zikosyokai(commands.Cog):
 	INTRO_TITLE = "自己紹介テンプレート"
 	# コードブロックで送信するテンプレ（MARKER を含めて検出しやすくする）
 	INTRO_CODEBLOCK: str = (
+		"自己紹介テンプレート\n"
 		"```text\n"
-		"自己紹介テンプレート\n\n"
 		"- 名前: \n"
 		"- 得意分野: \n"
 		"- SNSリンク: \n"
-		"- 一言: \n\n"
-		f"{MARKER}\n"
-		"```"
+		"- 一言: \n"
+		"```\n"
+		f"{MARKER}"
 	)
 
 	def __init__(self, bot: commands.Bot):
