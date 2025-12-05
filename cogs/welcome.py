@@ -416,7 +416,7 @@ class MemberWelcomeCog(commands.Cog):
                         f"{member.mention} さん、ようこそ！\n"
                         f"現在のメンバー数: **{member_count}人**\n"
                         f"{member.guild.name}のメンバーが{member_count}人になりました！皆さんありがとうございます！\n"
-                        f"<#1445478071221223515>で自己紹介してください。"
+                        f"良ければ、<#1445478071221223515>で自己紹介お願いします！。"
                     ),
                     color=discord.Color.gold(),
                     timestamp=datetime.now()
