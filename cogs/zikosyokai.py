@@ -14,22 +14,21 @@ class Zikosyokai(commands.Cog):
 	# 変更したいチャンネルIDをここにセット
 	TARGET_CHANNEL_ID: int = 1445478071221223515
 	# footerに付与するマーカー（検出用）
-	MARKER: str = "自己紹介テンプレート"
+	MARKER: str = "EvexBot"
 	# チェックマーク絵文字
 	CHECK_EMOJI: str = "✅"
 
- # もう要らないかも
 	INTRO_TITLE = "自己紹介テンプレート"
-
 	# コードブロックで送信するテンプレ（MARKER を含めて検出しやすくする）
 	INTRO_CODEBLOCK: str = (
-		"{MARKER} \n"
+		"自己紹介テンプレート\n"
 		"```text\n"
 		"- 名前: \n"
 		"- 得意分野: \n"
 		"- SNSリンク: \n"
 		"- 一言: \n"
 		"```\n"
+		f"-# {MARKER}"
 	)
 
 	def __init__(self, bot: commands.Bot):
