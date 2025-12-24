@@ -117,7 +117,7 @@ class MembersHistory(commands.Cog):
                 color=discord.Color.blurple()
             )
             embed.add_field(name="開始時点のメンバー数", value=str(counts[0]), inline=True)
-            embed.add_field(name="終了時点のメンバー数", value=str(counts[-1]), inline=True)
+            embed.add_field(name=f"{end_date}時点のメンバー数", value=str(counts[-1]), inline=True)
             embed.set_image(url="attachment://members_history.png")
 
             file = discord.File(buf, filename="members_history.png")
