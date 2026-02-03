@@ -6,6 +6,9 @@ import os
 from datetime import datetime, timedelta
 from typing import Optional
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class MVP(commands.Cog):
@@ -241,50 +244,60 @@ class MVP(commands.Cog):
     @app_commands.command(name="mvp", description="今日の暫定MVPランキングを表示します")
     async def mvp_command(self, interaction: discord.Interaction):
         """今日の暫定ランキングを表示"""
-        today = await self.get_today_date()
-        ranking = await self.get_ranking(today)
-        
-        if not ranking:
-            await interaction.response.send_message(
-                "まだ今日のデータがありません。",
-                ephemeral=True
-            )
-            return
-        
-        # Embedを作成
-        embed = discord.Embed(
-            title=f"📊 {today} の暫定MVPランキング",
-            description="現在のランキングです（リアルタイム更新）",
-            color=discord.Color.blue(),
-            timestamp=datetime.now()
-        )
-        
-        # ランキングを追加
-        for i, (user_id, msg_count, vc_seconds, score) in enumerate(ranking, 1):
-            user = await self.bot.fetch_user(user_id)
-            username = user.name if user else f"User {user_id}"
+        # Show the thinking indicator to the user while preparing the response
+        await interaction.response.defer(thinking=True)
+        try:
+            today = await self.get_today_date()
+            ranking = await self.get_ranking(today)
             
-            vc_minutes = vc_seconds // 60
-            vc_hours = vc_minutes // 60
-            vc_mins_remainder = vc_minutes % 60
+            if not ranking:
+                await interaction.followup.send(
+                    "まだ今日のデータがありません。",
+                    ephemeral=True
+                )
+                return
             
-            medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}位"
-            
-            value = (
-                f"**スコア:** {score:.1f}点\n"
-                f"📝 メッセージ: {msg_count}件\n"
-                f"🎤 VC時間: {vc_hours}時間{vc_mins_remainder}分"
+            # Embedを作成
+            embed = discord.Embed(
+                title=f"📊 {today} の暫定MVPランキング",
+                description="現在のランキングです（リアルタイム更新）",
+                color=discord.Color.blue(),
+                timestamp=datetime.now()
             )
             
-            embed.add_field(
-                name=f"{medal} {username}",
-                value=value,
-                inline=False
-            )
-        
-        embed.set_footer(text="スコア = メッセージ数 + VC時間(分) | この日の集計は継続中です")
-        
-        await interaction.response.send_message(embed=embed)
+            # ランキングを追加
+            for i, (user_id, msg_count, vc_seconds, score) in enumerate(ranking, 1):
+                user = await self.bot.fetch_user(user_id)
+                username = user.name if user else f"User {user_id}"
+                
+                vc_minutes = vc_seconds // 60
+                vc_hours = vc_minutes // 60
+                vc_mins_remainder = vc_minutes % 60
+                
+                medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}位"
+                
+                value = (
+                    f"**スコア:** {score:.1f}点\n"
+                    f"📝 メッセージ: {msg_count}件\n"
+                    f"🎤 VC時間: {vc_hours}時間{vc_mins_remainder}分"
+                )
+                
+                embed.add_field(
+                    name=f"{medal} {username}",
+                    value=value,
+                    inline=False
+                )
+            
+            embed.set_footer(text="スコア = メッセージ数 + VC時間(分) | この日の集計は継続中です")
+            
+            await interaction.followup.send(embed=embed)
+        except Exception:
+            logger.exception("Exception in mvp_command")
+            # Attempt to inform the user; fallback to logging if it fails
+            try:
+                await interaction.followup.send("エラーが発生しました。後で再試行してください。", ephemeral=True)
+            except Exception:
+                logger.exception("Failed to send error followup in mvp_command")
 
     def cog_unload(self):
         """Cogがアンロードされるときの処理"""
