@@ -416,7 +416,7 @@ class MemberWelcomeCog(commands.Cog):
                         f"{member.mention} さん、ようこそ！\n"
                         f"現在のメンバー数: **{member_count}人**\n"
                         f"{member.guild.name}のメンバーが{member_count}人になりました！皆さんありがとうございます！\n"
-                        f"良ければ、<#1445478071221223515>で自己紹介お願いします！。"
+                        f"良ければ、<#1445478071221223515>で自己紹介お願いします！"
                     ),
                     color=discord.Color.gold(),
                     timestamp=datetime.now()
@@ -466,7 +466,7 @@ class MemberWelcomeCog(commands.Cog):
                     f"{member.mention} さん、ようこそ！\n"
                     f"現在のメンバー数: {member_count}人\n"
                     f"あと {increment - remainder} 人で {next_target}人達成です！\n"
-                    f"良ければ、<#1445478071221223515>で自己紹介お願いします！。"
+                    f"良ければ、<#1445478071221223515>で自己紹介お願いします！"
                 )
                 sent_msg = await channel.send(message)
 
