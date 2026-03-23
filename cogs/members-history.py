@@ -54,12 +54,66 @@ class MembersHistory(commands.Cog):
         return buf
 
     @discord.app_commands.command(
+        name="members-today",
+        description="本日の新規メンバー数と昨日・先週比の増加率を表示します"
+    )
+    async def members_today(self, interaction: discord.Interaction) -> None:
+        try:
+            await interaction.response.defer(thinking=True)
+
+            now = datetime.now(tz=interaction.guild.me.joined_at.tzinfo if interaction.guild.me.joined_at else None)
+            today = now.date()
+            yesterday = today - timedelta(days=1)
+            last_week = today - timedelta(days=7)
+
+            join_dates = await self._fetch_all_join_dates(interaction.guild)
+            if not join_dates:
+                await interaction.followup.send("参加履歴が見つかりません。")
+                return
+
+            def _count_joins_on(d: date) -> int:
+                return sum(1 for jd in join_dates if jd.date() == d)
+
+            today_count = _count_joins_on(today)
+            yesterday_count = _count_joins_on(yesterday)
+            last_week_count = _count_joins_on(last_week)
+
+            def _rate(current: int, previous: int) -> str:
+                if previous == 0:
+                    return f"+{current}人 (前回0人のため率算出不可)" if current > 0 else "±0"
+                rate = (current - previous) / previous * 100
+                sign = "+" if rate >= 0 else ""
+                return f"{sign}{rate:.1f}%"
+
+            total_members = interaction.guild.member_count or len(join_dates)
+
+            embed = discord.Embed(
+                title="Today's Member Growth",
+                description=f"{today.strftime('%Y-%m-%d')} の新規メンバー状況",
+                color=discord.Color.green(),
+                timestamp=now,
+            )
+            embed.add_field(name="現在のメンバー数", value=f"{total_members}人", inline=False)
+            embed.add_field(name="本日の新規参加", value=f"{today_count}人", inline=True)
+            embed.add_field(name="昨日の新規参加", value=f"{yesterday_count}人", inline=True)
+            embed.add_field(name="先週同曜日の新規参加", value=f"{last_week_count}人", inline=True)
+            embed.add_field(name="昨日比", value=_rate(today_count, yesterday_count), inline=True)
+            embed.add_field(name="先週比", value=_rate(today_count, last_week_count), inline=True)
+            embed.set_footer(text=f"集計時刻: {now.strftime('%H:%M:%S')}")
+
+            await interaction.followup.send(embed=embed)
+
+        except Exception as e:
+            logger.error("Error in members-today command: %s", e, exc_info=True)
+            await interaction.followup.send(f"エラーが発生しました: {e}")
+
+    @discord.app_commands.command(
         name="members-history",
         description="指定した日付から指定した日付までのメンバー数推移をグラフ化します。"
     )
     @discord.app_commands.describe(
-        start_date="開始日 (YYYY-MM-DD または YYYY/MM/DD)",
-        end_date="終了日 (YYYY-MM-DD または YYYY/MM/DD)"
+        start_date="開始日 (YYYY-MM-DD, YYYY/MM/DD, YYYYMMDD)",
+        end_date="終了日 (YYYY-MM-DD, YYYY/MM/DD, YYYYMMDD)"
     )
     async def members_history(
         self,
@@ -78,12 +132,12 @@ class MembersHistory(commands.Cog):
                     return s.date()
                 if not isinstance(s, str):
                     raise ValueError("日付は文字列で指定してください。形式: YYYY-MM-DD")
-                for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
+                for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"):
                     try:
                         return datetime.strptime(s, fmt).date()
                     except Exception:
                         continue
-                raise ValueError("日付は YYYY-MM-DD または YYYY/MM/DD の形式で指定してください。")
+                raise ValueError("日付は YYYY-MM-DD, YYYY/MM/DD, または YYYYMMDD の形式で指定してください。")
 
             try:
                 start_date = _parse_date(start_date)
