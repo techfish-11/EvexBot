@@ -168,7 +168,7 @@ class LeaveDatabase:
         await conn.commit()
         await conn.close()
 
-ROLE_ID: Final[int] = 1255803402898898964
+ROLE_ID: Final[int] = int(os.getenv("ADMIN_ROLE_ID"))
 
 class MemberWelcomeCog(commands.Cog):
     """メンバー参加時のウェルカムメッセージを管理"""
@@ -416,7 +416,7 @@ class MemberWelcomeCog(commands.Cog):
                         f"{member.mention} さん、ようこそ！\n"
                         f"現在のメンバー数: **{member_count}人**\n"
                         f"{member.guild.name}のメンバーが{member_count}人になりました！皆さんありがとうございます！\n"
-                        f"良ければ、<#1445478071221223515>で自己紹介お願いします！"
+                        f"良ければ、<#{os.getenv('INTRO_CHANNEL_ID')}>で自己紹介お願いします！"
                     ),
                     color=discord.Color.gold(),
                     timestamp=datetime.now()
@@ -466,7 +466,7 @@ class MemberWelcomeCog(commands.Cog):
                     f"{member.mention} さん、ようこそ！\n"
                     f"現在のメンバー数: {member_count}人\n"
                     f"あと {increment - remainder} 人で {next_target}人達成です！\n"
-                    f"良ければ、<#1445478071221223515>で自己紹介お願いします！"
+                    f"良ければ、<#{os.getenv('INTRO_CHANNEL_ID')}>で自己紹介お願いします！"
                 )
                 sent_msg = await channel.send(message)
 
@@ -530,7 +530,7 @@ class MemberWelcomeCog(commands.Cog):
     async def milestonetest(self, ctx: commands.Context):
         """マイルストーンお祝いEmbed＋グラフのテスト送信（管理者専用）"""
         # 実行者制限
-        if ctx.author.id != 1241397634095120438:
+        if ctx.author.id != int(os.getenv("ADMIN_USER_ID")):
             await ctx.send("権限がありません。")
             return
 

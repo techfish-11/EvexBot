@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from typing import Optional
 
 import discord
@@ -11,8 +12,7 @@ class Zikosyokai(commands.Cog):
 	チャンネルでメッセージが投稿・削除された際に、古いテンプレを削除して新しいテンプレを送信します。
 	"""
 
-	# 変更したいチャンネルIDをここにセット
-	TARGET_CHANNEL_ID: int = 1445478071221223515
+	TARGET_CHANNEL_ID: int = int(os.getenv("INTRO_CHANNEL_ID"))
 	# footerに付与するマーカー（検出用）
 	MARKER: str = "EvexBot"
 	# チェックマーク絵文字

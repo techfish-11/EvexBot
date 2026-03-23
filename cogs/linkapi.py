@@ -8,6 +8,7 @@ linkapi.py
   -> { "links": ["https://...", ...] }
 """
 
+import os
 import re
 import asyncio
 import logging
@@ -18,7 +19,7 @@ import aiohttp
 from aiohttp import web
 from discord.ext import commands
 
-LINK_CHANNEL_ID: int = 1269637837041565769
+LINK_CHANNEL_ID: int = int(os.getenv("LINK_CHANNEL_ID"))
 API_HOST: str = "0.0.0.0"
 API_PORT: int = 8080
 LINK_LIMIT: int = 10
