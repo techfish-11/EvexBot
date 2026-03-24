@@ -1,5 +1,6 @@
 import io
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import List
 import logging
 
@@ -61,7 +62,7 @@ class MembersHistory(commands.Cog):
         try:
             await interaction.response.defer(thinking=True)
 
-            now = datetime.now(tz=interaction.guild.me.joined_at.tzinfo if interaction.guild.me.joined_at else None)
+            now = datetime.now(tz=ZoneInfo("Asia/Tokyo"))
             today = now.date()
             yesterday = today - timedelta(days=1)
             last_week = today - timedelta(days=7)
