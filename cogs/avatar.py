@@ -18,9 +18,15 @@ class Avatar(commands.Cog):
         self,
         user: discord.User,
         avatar_url: str,
-        is_default: bool = False
+        is_default: bool = False,
+        is_server: bool = False
     ) -> discord.Embed:
-        avatar_type = "デフォルトアイコン" if is_default else "アイコン"
+        if is_default:
+            avatar_type = "デフォルトアイコン"
+        elif is_server:
+            avatar_type = "サーバーアイコン"
+        else:
+            avatar_type = "グローバルアイコン"
         embed = discord.Embed(
             title=f"{user.name}の{avatar_type}",
             color=EMBED_COLOR
@@ -33,21 +39,35 @@ class Avatar(commands.Cog):
         name="avatar",
         description="ユーザーのアイコンを表示します"
     )
+    @discord.app_commands.describe(
+        user="アバターを表示するユーザー",
+        scope="グローバルかサーバーごとのアバターを選択"
+    )
+    @discord.app_commands.choices(scope=[
+        discord.app_commands.Choice(name="サーバー", value="server"),
+        discord.app_commands.Choice(name="グローバル", value="global"),
+    ])
     async def avatar(
         self,
         interaction: discord.Interaction,
-        user: discord.User
+        user: discord.Member,
+        scope: discord.app_commands.Choice[str] = None
     ) -> None:
+        use_global = scope is not None and scope.value == "global"
 
         try:
-            if user.avatar:
-                # カスタムアバターがある場合
+            if not use_global and isinstance(user, discord.Member) and user.guild_avatar:
+                embed = self._create_avatar_embed(
+                    user=user,
+                    avatar_url=user.guild_avatar.url,
+                    is_server=True
+                )
+            elif user.avatar:
                 embed = self._create_avatar_embed(
                     user=user,
                     avatar_url=user.avatar.url
                 )
             elif user.default_avatar:
-                # デフォルトアバターの場合
                 embed = self._create_avatar_embed(
                     user=user,
                     avatar_url=user.default_avatar.url,
