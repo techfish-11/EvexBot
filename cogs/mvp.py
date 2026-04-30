@@ -10,6 +10,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+MVP_EMBED_COLOR = 0x2F3136
+RANKING_DISPLAY_LIMIT = 5
+DATA_RETENTION_DAYS = 30
+DATABASE_SCHEMA_VERSION = 1
+
 
 class MVP(commands.Cog):
     """
@@ -31,7 +36,7 @@ class MVP(commands.Cog):
         self.cleanup_old_data.start()
 
     async def init_database(self):
-        """データベースの初期化"""
+        """データベースの初期化とマイグレーション"""
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS daily_stats (
@@ -42,7 +47,26 @@ class MVP(commands.Cog):
                     PRIMARY KEY (user_id, date)
                 )
             """)
+            await self._run_migrations(db)
             await db.commit()
+
+    async def _run_migrations(self, db: aiosqlite.Connection) -> None:
+        """既存DBを安全に現在のスキーマへ移行する"""
+        cursor = await db.execute("PRAGMA user_version")
+        row = await cursor.fetchone()
+        current_version = int(row[0]) if row else 0
+
+        if current_version > DATABASE_SCHEMA_VERSION:
+            raise RuntimeError(
+                f"Unsupported MVP database schema version: {current_version}"
+            )
+
+        if current_version < 1:
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_daily_stats_date_user
+                ON daily_stats (date, user_id)
+            """)
+            await db.execute(f"PRAGMA user_version = {DATABASE_SCHEMA_VERSION}")
 
     async def get_today_date(self) -> str:
         """今日の日付を取得（JST基準）"""
@@ -52,6 +76,13 @@ class MVP(commands.Cog):
         """昨日の日付を取得（JST基準）"""
         yesterday = datetime.now() - timedelta(days=1)
         return yesterday.strftime("%Y-%m-%d")
+
+    async def get_period_start_date(self, days: int) -> str:
+        """指定日数分の開始日を取得（今日を含む）"""
+        if not 1 <= days <= DATA_RETENTION_DAYS:
+            raise ValueError(f"days must be between 1 and {DATA_RETENTION_DAYS}")
+        start_date = datetime.now() - timedelta(days=days - 1)
+        return start_date.strftime("%Y-%m-%d")
 
     async def increment_message_count(self, user_id: int, date: str):
         """メッセージ数を1増やす"""
@@ -88,9 +119,281 @@ class MVP(commands.Cog):
             """, (date,))
             return await cursor.fetchall()
 
+    def _get_category_expression(self, category: str) -> str:
+        """カテゴリに対応する安全なSQL式を返す"""
+        category_expressions = {
+            "text": "message_count",
+            "voice": "CAST(vc_unmuted_seconds / 60 AS INTEGER)",
+        }
+        expression = category_expressions.get(category)
+        if expression is None:
+            raise ValueError(f"Unsupported MVP ranking category: {category}")
+        return expression
+
+    def _get_period_category_expression(self, category: str) -> str:
+        """期間集計カテゴリに対応する安全なSQL集計式を返す"""
+        category_expressions = {
+            "text": "SUM(message_count)",
+            "voice": "CAST(SUM(vc_unmuted_seconds) / 60 AS INTEGER)",
+        }
+        expression = category_expressions.get(category)
+        if expression is None:
+            raise ValueError(f"Unsupported MVP ranking category: {category}")
+        return expression
+
+    async def get_category_ranking(self, date: str, category: str, limit: Optional[int] = None) -> list[tuple[int, int]]:
+        """指定日のカテゴリ別ランキングを取得する"""
+        expression = self._get_category_expression(category)
+
+        limit_clause = "" if limit is None else "LIMIT ?"
+        params: tuple = (date,) if limit is None else (date, limit)
+
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(f"""
+                SELECT user_id, {expression} AS xp
+                FROM daily_stats
+                WHERE date = ? AND {expression} > 0
+                ORDER BY xp DESC, user_id ASC
+                {limit_clause}
+            """, params)
+            return await cursor.fetchall()
+
+    async def get_category_ranking_for_period(
+        self,
+        start_date: str,
+        end_date: str,
+        category: str,
+        limit: Optional[int] = None,
+    ) -> list[tuple[int, int]]:
+        """指定期間のカテゴリ別ランキングを取得する"""
+        expression = self._get_period_category_expression(category)
+
+        limit_clause = "" if limit is None else "LIMIT ?"
+        params: tuple = (start_date, end_date) if limit is None else (start_date, end_date, limit)
+
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(f"""
+                SELECT user_id, {expression} AS xp
+                FROM daily_stats
+                WHERE date BETWEEN ? AND ?
+                GROUP BY user_id
+                HAVING xp > 0
+                ORDER BY xp DESC, user_id ASC
+                {limit_clause}
+            """, params)
+            return [(int(user_id), int(xp)) for user_id, xp in await cursor.fetchall()]
+
+    async def get_user_category_rank(self, date: str, category: str, user_id: int) -> Optional[tuple[int, int]]:
+        """指定ユーザーのカテゴリ別順位とXPを取得する"""
+        expression = self._get_category_expression(category)
+
+        async with aiosqlite.connect(self.db_path) as db:
+            user_cursor = await db.execute(f"""
+                SELECT {expression} AS xp
+                FROM daily_stats
+                WHERE date = ? AND user_id = ? AND {expression} > 0
+            """, (date, user_id))
+            user_row = await user_cursor.fetchone()
+            if user_row is None:
+                return None
+
+            xp = int(user_row[0])
+            rank_cursor = await db.execute(f"""
+                SELECT COUNT(*) + 1
+                FROM daily_stats
+                WHERE date = ?
+                  AND {expression} > 0
+                  AND (
+                    {expression} > ?
+                    OR ({expression} = ? AND user_id < ?)
+                  )
+            """, (date, xp, xp, user_id))
+            rank_row = await rank_cursor.fetchone()
+            if rank_row is None:
+                return None
+
+            return int(rank_row[0]), xp
+
+    async def get_user_category_rank_for_period(
+        self,
+        start_date: str,
+        end_date: str,
+        category: str,
+        user_id: int,
+    ) -> Optional[tuple[int, int]]:
+        """指定期間における指定ユーザーのカテゴリ別順位とXPを取得する"""
+        expression = self._get_period_category_expression(category)
+
+        async with aiosqlite.connect(self.db_path) as db:
+            user_cursor = await db.execute(f"""
+                SELECT {expression} AS xp
+                FROM daily_stats
+                WHERE date BETWEEN ? AND ? AND user_id = ?
+                GROUP BY user_id
+                HAVING xp > 0
+            """, (start_date, end_date, user_id))
+            user_row = await user_cursor.fetchone()
+            if user_row is None:
+                return None
+
+            xp = int(user_row[0])
+            rank_cursor = await db.execute(f"""
+                SELECT COUNT(*) + 1
+                FROM (
+                    SELECT user_id, {expression} AS xp
+                    FROM daily_stats
+                    WHERE date BETWEEN ? AND ?
+                    GROUP BY user_id
+                    HAVING xp > 0
+                       AND (
+                         xp > ?
+                         OR (xp = ? AND user_id < ?)
+                       )
+                )
+            """, (start_date, end_date, xp, xp, user_id))
+            rank_row = await rank_cursor.fetchone()
+            if rank_row is None:
+                return None
+
+            return int(rank_row[0]), xp
+
+    def _format_leaderboard_entry(self, rank: int, user_id: int, xp: int) -> str:
+        """Embed用のランキング行を作成する"""
+        return f"#{rank} | <@{user_id}> XP: {xp}"
+
+    async def _build_leaderboard_lines(
+        self,
+        date: str,
+        category: str,
+        viewer_id: Optional[int] = None,
+    ) -> list[str]:
+        """トップランキングと必要に応じた閲覧者の順位行を作成する"""
+        top_ranking = await self.get_category_ranking(date, category, RANKING_DISPLAY_LIMIT)
+        lines = [
+            self._format_leaderboard_entry(rank, user_id, xp)
+            for rank, (user_id, xp) in enumerate(top_ranking, 1)
+        ]
+
+        if viewer_id is not None:
+            viewer_rank = await self.get_user_category_rank(date, category, viewer_id)
+            if viewer_rank is not None and all(user_id != viewer_id for user_id, _ in top_ranking):
+                rank, xp = viewer_rank
+                lines.append(self._format_leaderboard_entry(rank, viewer_id, xp))
+
+        return lines or ["データなし"]
+
+    async def _build_period_leaderboard_lines(
+        self,
+        start_date: str,
+        end_date: str,
+        category: str,
+        viewer_id: Optional[int] = None,
+    ) -> list[str]:
+        """期間指定のトップランキングと閲覧者の順位行を作成する"""
+        top_ranking = await self.get_category_ranking_for_period(
+            start_date,
+            end_date,
+            category,
+            RANKING_DISPLAY_LIMIT,
+        )
+        lines = [
+            self._format_leaderboard_entry(rank, user_id, xp)
+            for rank, (user_id, xp) in enumerate(top_ranking, 1)
+        ]
+
+        if viewer_id is not None:
+            viewer_rank = await self.get_user_category_rank_for_period(
+                start_date,
+                end_date,
+                category,
+                viewer_id,
+            )
+            if viewer_rank is not None and all(user_id != viewer_id for user_id, _ in top_ranking):
+                rank, xp = viewer_rank
+                lines.append(self._format_leaderboard_entry(rank, viewer_id, xp))
+
+        return lines or ["データなし"]
+
+    async def create_leaderboard_embed(
+        self,
+        date: str,
+        *,
+        viewer_id: Optional[int] = None,
+    ) -> discord.Embed:
+        """2カラム形式のMVP Embedを作成する"""
+        text_lines, voice_lines = await asyncio.gather(
+            self._build_leaderboard_lines(date, "text", viewer_id),
+            self._build_leaderboard_lines(date, "voice", viewer_id),
+        )
+
+        title = "Evexスコアランキング)"
+
+        embed = discord.Embed(
+            title=title,
+            color=MVP_EMBED_COLOR,
+            timestamp=datetime.now(),
+        )
+        embed.add_field(name="テキスト 💬", value="\n".join(text_lines), inline=True)
+        embed.add_field(name="通話 🎙️", value="\n".join(voice_lines), inline=True)
+        embed.set_footer(text=f"集計日: {date} | テキスト XP = メッセージ数 / 通話 XP = VC時間(分)")
+        return embed
+
+    async def create_period_leaderboard_embed(
+        self,
+        start_date: str,
+        end_date: str,
+        days: int,
+        *,
+        viewer_id: Optional[int] = None,
+    ) -> discord.Embed:
+        """指定期間のMVP Embedを作成する"""
+        text_lines, voice_lines = await asyncio.gather(
+            self._build_period_leaderboard_lines(start_date, end_date, "text", viewer_id),
+            self._build_period_leaderboard_lines(start_date, end_date, "voice", viewer_id),
+        )
+
+        title = f"Evexスコアランキング (過去 {days}d)"
+        embed = discord.Embed(
+            title=title,
+            color=MVP_EMBED_COLOR,
+            timestamp=datetime.now(),
+        )
+        embed.add_field(name="テキスト 💬", value="\n".join(text_lines), inline=True)
+        embed.add_field(name="通話 🎙️", value="\n".join(voice_lines), inline=True)
+        embed.set_footer(
+            text=f"集計期間: {start_date} - {end_date} | テキスト XP = メッセージ数 / 通話 XP = VC時間(分)"
+        )
+        return embed
+
+    def create_daily_announcement_embed(self, date: str, ranking: list[tuple]) -> discord.Embed:
+        """日次アナウンス専用の総合ランキングEmbedを作成する"""
+        embed = discord.Embed(
+            title=f"{date} のMVPランキング",
+            color=discord.Color.gold(),
+            timestamp=datetime.now(),
+        )
+
+        for rank, (user_id, message_count, vc_seconds, score) in enumerate(ranking[:10], 1):
+            vc_minutes = int(vc_seconds) // 60
+            vc_hours, vc_mins_remainder = divmod(vc_minutes, 60)
+            medal = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else f"{rank}位"
+
+            embed.add_field(
+                name=f"{medal} <@{user_id}>",
+                value=(
+                    f"スコア: {float(score):.1f}点\n"
+                    f"メッセージ: {int(message_count)}件\n"
+                    f"VC時間: {vc_hours}時間{vc_mins_remainder}分"
+                ),
+                inline=False,
+            )
+
+        embed.set_footer(text="スコア = メッセージ数 + VC時間(分)")
+        return embed
+
     async def delete_old_data(self):
-        """3日より古いデータを削除"""
-        cutoff_date = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
+        """保持期間より古いデータを削除"""
+        cutoff_date = (datetime.now() - timedelta(days=DATA_RETENTION_DAYS - 1)).strftime("%Y-%m-%d")
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("DELETE FROM daily_stats WHERE date < ?", (cutoff_date,))
             await db.commit()
@@ -191,40 +494,12 @@ class MVP(commands.Cog):
         if not channel:
             return
         
-        # Embedを作成
-        embed = discord.Embed(
-            title=f"🏆 {yesterday} のMVPランキング",
-            description="お疲れ様でした！昨日の活動ランキングです",
-            color=discord.Color.gold(),
-            timestamp=datetime.now()
+        embed = self.create_daily_announcement_embed(yesterday, ranking)
+        
+        await channel.send(
+            content="お疲れ様でした！昨日の活動ランキングです！",
+            embed=embed,
         )
-        
-        # ランキングを追加
-        for i, (user_id, msg_count, vc_seconds, score) in enumerate(ranking, 1):
-            user = await self.bot.fetch_user(user_id)
-            username = user.name if user else f"User {user_id}"
-            
-            vc_minutes = vc_seconds // 60
-            vc_hours = vc_minutes // 60
-            vc_mins_remainder = vc_minutes % 60
-            
-            medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}位"
-            
-            value = (
-                f"**スコア:** {score:.1f}点\n"
-                f"📝 メッセージ: {msg_count}件\n"
-                f"🎤 VC時間: {vc_hours}時間{vc_mins_remainder}分"
-            )
-            
-            embed.add_field(
-                name=f"{medal} {username}",
-                value=value,
-                inline=False
-            )
-        
-        embed.set_footer(text="スコア = メッセージ数 + VC時間(分)")
-        
-        await channel.send(embed=embed)
 
     @daily_announcement.before_loop
     async def before_daily_announcement(self):
@@ -241,54 +516,35 @@ class MVP(commands.Cog):
         """タスク開始前にBotの準備完了を待つ"""
         await self.bot.wait_until_ready()
 
-    @app_commands.command(name="mvp", description="今日の暫定MVPランキングを表示します")
-    async def mvp_command(self, interaction: discord.Interaction):
-        """今日の暫定ランキングを表示"""
+    @app_commands.command(name="mvp", description="指定期間のMVPランキングを表示します")
+    @app_commands.describe(days="集計期間（日数）。1から30まで指定できます。")
+    async def mvp_command(
+        self,
+        interaction: discord.Interaction,
+        days: app_commands.Range[int, 1, DATA_RETENTION_DAYS] = 1,
+    ):
+        """指定期間の暫定ランキングを表示"""
         # Show the thinking indicator to the user while preparing the response
         await interaction.response.defer(thinking=True)
         try:
             today = await self.get_today_date()
-            ranking = await self.get_ranking(today)
+            start_date = await self.get_period_start_date(days)
+            ranking = await self.get_category_ranking_for_period(start_date, today, "text", 1)
+            voice_ranking = await self.get_category_ranking_for_period(start_date, today, "voice", 1)
             
-            if not ranking:
+            if not ranking and not voice_ranking:
                 await interaction.followup.send(
-                    "まだ今日のデータがありません。",
+                    "指定期間のデータがありません。",
                     ephemeral=True
                 )
                 return
             
-            # Embedを作成
-            embed = discord.Embed(
-                title=f"📊 {today} の暫定MVPランキング",
-                description="現在のランキングです（リアルタイム更新）",
-                color=discord.Color.blue(),
-                timestamp=datetime.now()
+            embed = await self.create_period_leaderboard_embed(
+                start_date,
+                today,
+                days,
+                viewer_id=interaction.user.id,
             )
-            
-            # ランキングを追加
-            for i, (user_id, msg_count, vc_seconds, score) in enumerate(ranking, 1):
-                user = await self.bot.fetch_user(user_id)
-                username = user.name if user else f"User {user_id}"
-                
-                vc_minutes = vc_seconds // 60
-                vc_hours = vc_minutes // 60
-                vc_mins_remainder = vc_minutes % 60
-                
-                medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}位"
-                
-                value = (
-                    f"**スコア:** {score:.1f}点\n"
-                    f"📝 メッセージ: {msg_count}件\n"
-                    f"🎤 VC時間: {vc_hours}時間{vc_mins_remainder}分"
-                )
-                
-                embed.add_field(
-                    name=f"{medal} {username}",
-                    value=value,
-                    inline=False
-                )
-            
-            embed.set_footer(text="スコア = メッセージ数 + VC時間(分) | この日の集計は継続中です")
             
             await interaction.followup.send(embed=embed)
         except Exception:
