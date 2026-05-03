@@ -14,6 +14,27 @@ MVP_EMBED_COLOR = 0x2F3136
 RANKING_DISPLAY_LIMIT = 5
 DATA_RETENTION_DAYS = 30
 DATABASE_SCHEMA_VERSION = 1
+DISABLED_ENV_VALUES = {"0", "false", "off", "no"}
+
+
+def _get_env_bool(name: str, default: bool = True) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+
+    normalized_value = raw_value.strip().lower()
+    if normalized_value in DISABLED_ENV_VALUES:
+        return False
+    if normalized_value in {"1", "true", "on", "yes"}:
+        return True
+
+    logger.warning(
+        "Invalid boolean value for %s=%r. Falling back to %s.",
+        name,
+        raw_value,
+        default,
+    )
+    return default
 
 
 class MVP(commands.Cog):
@@ -26,13 +47,17 @@ class MVP(commands.Cog):
         self.db_path = "mvp_data.db"
         self.target_guild_id = int(os.getenv("MVP_GUILD_ID", "0"))
         self.announcement_channel_id = int(os.getenv("MVP_ANNOUNCEMENT_CHANNEL_ID", "0"))
+        self.daily_announcement_enabled = _get_env_bool("MVP_DAILY_ANNOUNCEMENT_ENABLED", True)
         
         # VCのミュート状態を追跡（user_id: {joined_at, unmuted_at, total_unmuted_time}）
         self.vc_sessions = {}
         
         # 初期化処理
         self.bot.loop.create_task(self.init_database())
-        self.daily_announcement.start()
+        if self.daily_announcement_enabled:
+            self.daily_announcement.start()
+        else:
+            logger.info("MVP daily announcements are disabled by environment variable.")
         self.cleanup_old_data.start()
 
     async def init_database(self):
@@ -475,6 +500,9 @@ class MVP(commands.Cog):
     @tasks.loop(hours=24)
     async def daily_announcement(self):
         """毎日0時に前日のランキングを発表"""
+        if not self.daily_announcement_enabled:
+            return
+
         now = datetime.now()
         
         # 0時まで待機
@@ -557,7 +585,8 @@ class MVP(commands.Cog):
 
     def cog_unload(self):
         """Cogがアンロードされるときの処理"""
-        self.daily_announcement.cancel()
+        if self.daily_announcement.is_running():
+            self.daily_announcement.cancel()
         self.cleanup_old_data.cancel()
 
 
